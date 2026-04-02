@@ -45,7 +45,7 @@ service cron start
 
 # Start PHP-FPM
 echo "Starting PHP-FPM..."
-php-fpm8.3 -D
+php-fpm -D
 
 # Start Apache in foreground
 echo "Starting Apache..."
