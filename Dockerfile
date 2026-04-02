@@ -3,6 +3,7 @@ FROM php:8.3-apache
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     git unzip curl zip libzip-dev libpng-dev libonig-dev libxml2-dev \
+    libsqlite3-dev sqlite3 \
     nodejs npm \
     && docker-php-ext-install pdo pdo_mysql pdo_sqlite zip
 
