@@ -1,36 +1,24 @@
 FROM ubuntu:24.04
 
-# Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# Set versions
 ENV PHP_VERSION=8.4
 ENV NODE_VERSION=20.x
-
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
-# Install repository management tools and add custom repositories
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    curl \
-    ca-certificates \
-    gnupg \
-    apt-utils \
-    && add-apt-repository ppa:ondrej/php \
-    && curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install all application packages
+# Install base tools + repos
 RUN apt-get update && apt-get install -y \
-    # Apache2
+    software-properties-common curl ca-certificates gnupg apt-utils \
+    && add-apt-repository ppa:ondrej/php \
+    && curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash -
+
+# Install Apache + PHP (MOD_PHP, NOT FPM)
+RUN apt-get update && apt-get install -y \
     apache2 \
-    # PHP and extensions
+    libapache2-mod-php${PHP_VERSION} \
     php${PHP_VERSION} \
     php${PHP_VERSION}-cli \
-    php${PHP_VERSION}-fpm \
     php${PHP_VERSION}-common \
     php${PHP_VERSION}-mysql \
     php${PHP_VERSION}-sqlite3 \
@@ -41,112 +29,53 @@ RUN apt-get update && apt-get install -y \
     php${PHP_VERSION}-xml \
     php${PHP_VERSION}-bcmath \
     php${PHP_VERSION}-intl \
-    php${PHP_VERSION}-dom \
-    # Node.js (from NodeSource repository)
-    nodejs \
-    # System utilities
-    zip \
-    cron \
-    wget \
-    unzip \
-    git \
-    openssl \
-    sudo \
-    # Cleanup
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    nodejs zip cron wget unzip git openssl sudo \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Configure PHP-FPM pool for performance
-RUN sed -i 's/pm = dynamic/pm = ondemand/' /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf \
-    && sed -i 's/pm.max_children = .*/pm.max_children = 20/' /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf \
-    && sed -i 's/;pm.process_idle_timeout = .*/pm.process_idle_timeout = 10s/' /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf \
-    && sed -i 's/;pm.max_requests = .*/pm.max_requests = 500/' /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf \
-    && sed -i 's/memory_limit = .*/memory_limit = 256M/' /etc/php/${PHP_VERSION}/fpm/php.ini \
-    && sed -i 's/upload_max_filesize = .*/upload_max_filesize = 20M/' /etc/php/${PHP_VERSION}/fpm/php.ini \
-    && sed -i 's/post_max_size = .*/post_max_size = 20M/' /etc/php/${PHP_VERSION}/fpm/php.ini \
-    && sed -i 's/max_execution_time = .*/max_execution_time = 60/' /etc/php/${PHP_VERSION}/fpm/php.ini
+# Enable Apache modules
+RUN a2enmod rewrite php${PHP_VERSION}
 
-# Configure PHP-FPM to log to file
-RUN sed -i 's|;error_log = log/php8.3-fpm.log|error_log = /var/log/php8.3-fpm.log|' /etc/php/${PHP_VERSION}/fpm/php-fpm.conf \
-    && sed -i 's|;catch_workers_output = yes|catch_workers_output = yes|' /etc/php/${PHP_VERSION}/fpm/pool.d/www.conf
-
-# Enable Apache modules for PHP-FPM
-RUN a2enmod rewrite \
-    && a2enmod headers \
-    && a2enmod expires \
-    && a2enmod ssl \
-    && a2enmod proxy \
-    && a2enmod proxy_fcgi \
-    && a2enmod setenvif \
-    && a2enmod remoteip \
-    && a2dismod mpm_prefork \
-    && a2enmod mpm_event \
-    && a2enconf php${PHP_VERSION}-fpm
-
-# Configure RemoteIP to trust load balancer
-RUN echo 'RemoteIPHeader X-Forwarded-For\n\
-RemoteIPTrustedProxy 10.0.0.0/8\n\
-RemoteIPTrustedProxy 172.16.0.0/12\n\
-RemoteIPTrustedProxy 192.168.0.0/16\n\
-RemoteIPTrustedProxy 100.64.0.0/10\n\
-RemoteIPInternalProxy 10.0.0.0/8\n\
-RemoteIPInternalProxy 172.16.0.0/12\n\
-RemoteIPInternalProxy 192.168.0.0/16\n\
-RemoteIPInternalProxy 100.64.0.0/10' > /etc/apache2/conf-available/remoteip.conf
-
-RUN a2enconf remoteip
-
-# Configure Apache to listen on port 80
+# Apache config
 RUN echo "Listen 10000" > /etc/apache2/ports.conf
 
-# Create Apache VirtualHost for Laravel
-RUN echo '<VirtualHost *:10000>\n\
-    ServerAdmin webmaster@localhost\n\
-    DocumentRoot /var/www/html/public\n\
-    \n\
-    <Directory /var/www/html/public>\n\
-        Options -Indexes +FollowSymLinks\n\
-        AllowOverride All\n\
-        Require all granted\n\
-    </Directory>\n\
-    \n\
-    <FilesMatch \\.php$>\n\
-        SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost"\n\
-    </FilesMatch>\n\
-    \n\
-    ErrorLog ${APACHE_LOG_DIR}/error.log\n\
-    CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
+RUN echo '<VirtualHost *:10000>
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/html/public
+
+    <Directory /var/www/html/public>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    DirectoryIndex index.php index.html
+
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>' > /etc/apache2/sites-available/000-default.conf
 
-# Set ServerName to suppress warnings
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
-# Set working directory
+# Set working dir
 WORKDIR /var/www/html
 
-# Copy application code
+# Copy code
 COPY . .
 
-# Install PHP dependencies
+# Install PHP deps
 RUN composer install --no-dev --optimize-autoloader
 
-# Copy package files and install Node dependencies
+# Install Node deps
 COPY package*.json ./
 RUN npm ci
 
-# Complete Composer installation with autoloader optimization
-RUN composer dump-autoload --optimize --classmap-authoritative
+# Build frontend
+RUN npm run build && rm -rf node_modules
 
-# Build frontend assets
-RUN npm run build
-
-# Clean up Node modules after build
-RUN rm -rf node_modules
-
-# Create necessary directories and set permissions
+# Fix permissions
 RUN mkdir -p storage/framework/cache/data \
     storage/framework/sessions \
     storage/framework/views \
@@ -159,21 +88,16 @@ RUN mkdir -p storage/framework/cache/data \
     && chmod -R 775 storage bootstrap/cache database \
     && chmod 664 storage/logs/laravel.log
 
-# Create PHP-FPM run directory
-RUN mkdir -p /run/php
-
-# Set up Laravel scheduler cron job
+# Cron
 RUN echo "* * * * * www-data cd /var/www/html && php artisan schedule:run >> /dev/null 2>&1" > /etc/cron.d/laravel-cron \
     && chmod 0644 /etc/cron.d/laravel-cron
 
-# Expose port 80
 EXPOSE 10000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=5 \
-    CMD curl -f http://localhost/ || exit 1
+HEALTHCHECK CMD curl -f http://localhost:10000 || exit 1
 
-# Copy and set up entrypoint script
+# Entrypoint
 COPY docker-entrypoint.sh /var/www/html/docker-entrypoint.sh
 RUN chmod +x /var/www/html/docker-entrypoint.sh
 
