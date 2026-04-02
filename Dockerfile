@@ -153,6 +153,7 @@ RUN mkdir -p storage/framework/cache/data \
     storage/logs \
     bootstrap/cache \
     database \
+    && touch database/opengrc.sqlite \
     && touch storage/logs/laravel.log \
     && chown -R www-data:www-data /var/www/html \
     && chmod -R 775 storage bootstrap/cache database \
