@@ -3,7 +3,7 @@ set -e
 
 echo "Starting OpenGRC container..."
 
-# Wait for database to be ready (if using external database)
+# Wait for database (only if using external DB like MySQL)
 if [ -n "$DB_HOST" ]; then
     echo "Waiting for database connection..."
     max_attempts=30
@@ -22,41 +22,27 @@ if [ -n "$DB_HOST" ]; then
     fi
 fi
 
-# Run database migrations
+# Run migrations
 echo "Running database migrations..."
 php artisan migrate --force
 
-# Clear and cache config for production
+# Cache configs
 echo "Caching configuration..."
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 
-# Ensure storage directories have correct permissions
+# Fix permissions
+echo "Setting permissions..."
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
-# Create PHP-FPM run directory if it doesn't exist
-mkdir -p /run/php
-
-# Start cron daemon
+# Start cron
 echo "Starting cron..."
 service cron start
 
-# Start PHP-FPM
-echo "Starting PHP-FPM..."
+# ❌ REMOVED PHP-FPM COMPLETELY (THIS WAS THE ERROR)
 
-PHP_FPM_BIN=$(which php-fpm || which php-fpm8.3)
-
-if [ -z "$PHP_FPM_BIN" ]; then
-    echo "ERROR: PHP-FPM not found"
-    exit 1
-fi
-
-echo "Using PHP-FPM binary: $PHP_FPM_BIN"
-
-$PHP_FPM_BIN -D
-
-# Start Apache in foreground
+# Start Apache
 echo "Starting Apache..."
 exec apache2ctl -D FOREGROUND
