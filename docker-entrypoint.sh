@@ -45,7 +45,17 @@ service cron start
 
 # Start PHP-FPM
 echo "Starting PHP-FPM..."
-/usr/sbin/php-fpm8.3 -D
+
+PHP_FPM_BIN=$(which php-fpm || which php-fpm8.3)
+
+if [ -z "$PHP_FPM_BIN" ]; then
+    echo "ERROR: PHP-FPM not found"
+    exit 1
+fi
+
+echo "Using PHP-FPM binary: $PHP_FPM_BIN"
+
+$PHP_FPM_BIN -D
 
 # Start Apache in foreground
 echo "Starting Apache..."

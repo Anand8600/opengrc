@@ -100,10 +100,10 @@ RemoteIPInternalProxy 100.64.0.0/10' > /etc/apache2/conf-available/remoteip.conf
 RUN a2enconf remoteip
 
 # Configure Apache to listen on port 80
-RUN echo "Listen ${PORT}" > /etc/apache2/ports.conf
+RUN echo "Listen 10000" > /etc/apache2/ports.conf
 
 # Create Apache VirtualHost for Laravel
-RUN echo '<<VirtualHost *:${PORT}>>\n\
+RUN echo '<VirtualHost *:10000>\n\
     ServerAdmin webmaster@localhost\n\
     DocumentRoot /var/www/html/public\n\
     \n\
@@ -114,7 +114,7 @@ RUN echo '<<VirtualHost *:${PORT}>>\n\
     </Directory>\n\
     \n\
     <FilesMatch \\.php$>\n\
-        SetHandler "proxy:unix:/run/php/php8.3-fpm.sock|fcgi://localhost"\n\
+        SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost"\n\
     </FilesMatch>\n\
     \n\
     ErrorLog ${APACHE_LOG_DIR}/error.log\n\
